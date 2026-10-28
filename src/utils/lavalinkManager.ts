@@ -166,8 +166,19 @@ export function buildFfmpegFilterGraph(
 /**
  * Computes the effective @discordjs/voice inlineVolume multiplier (supports 0% to 200% with soft headroom protection).
  */
-export function computeAmplifiedVolume(volumePercent: number = 100, filter: VoiceFilter = 'None'): number {
-  const clamped = Math.max(0, Math.min(200, Number(volumePercent ?? 100)));
+export function computeAmplifiedVolume(
+  volumeOrState: number | GuildMusicState = 100,
+  filterArg: VoiceFilter = 'None'
+): number {
+  let rawVol = 100;
+  let filter = filterArg;
+  if (typeof volumeOrState === 'object' && volumeOrState !== null) {
+    rawVol = volumeOrState.volume ?? 100;
+    filter = volumeOrState.activeFilter || 'None';
+  } else {
+    rawVol = Number(volumeOrState ?? 100);
+  }
+  const clamped = Math.max(0, Math.min(200, isNaN(rawVol) ? 100 : rawVol));
   if (clamped === 0) return 0;
   // Below 100%: linear; Above 100%: gentle perceptual curve capped at 2.0x to prevent digital clipping
   let base = clamped <= 100 ? clamped / 100 : 1 + ((clamped - 100) / 100) * 0.75;

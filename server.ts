@@ -290,7 +290,7 @@ function buildDiscordJsEmbed(data: any): EmbedBuilder {
   if (data.footer?.text) embed.setFooter({ text: String(data.footer.text).slice(0, 2048) });
 
   if (Array.isArray(data.fields) && data.fields.length > 0) {
-    data.fields.forEach((f: any) => {
+    data.fields.slice(0, 25).forEach((f: any) => {
       const name = (f.name ? String(f.name) : 'Info').slice(0, 256);
       const value = (f.value ? String(f.value) : 'None').slice(0, 1024);
       embed.addFields({ name, value, inline: !!f.inline });
@@ -2274,9 +2274,10 @@ discordClient.on('messageCreate', async (message) => {
 
   const isDirectPing = isDirectBotMention || isExplicitNamePing;
 
+  const escapedBotName = (currentBotConfig.botName || 'Zenith').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const strippedOfMention = content
     .replace(new RegExp(`<@!?${botId}>`, 'g'), '')
-    .replace(new RegExp(`@${currentBotConfig.botName}`, 'gi'), '')
+    .replace(new RegExp(`@${escapedBotName}`, 'gi'), '')
     .trim();
 
   const isOnlyPing = !isEveryoneOrHere && (isExplicitNamePing || (isDirectBotMention && strippedOfMention.length === 0));
@@ -2812,8 +2813,8 @@ discordClient.on('messageCreate', async (message) => {
       }
 
       const embed = buildNowPlayingEmbed(realTrack, musicState, 'Now Playing');
-      await ensureVoiceConnectionAndPlay(message.guild, userVc, realTrack, false);
-      await updateVoiceChatStatus(message.guild, realTrack, userVc, false);
+      await ensureVoiceConnectionAndPlay(message.guild, userVc, realTrack);
+      await updateVoiceChatStatus(message.guild, realTrack, userVc, true);
 
       const components = buildMusicPlayerComponents(musicState);
       const sent = await safeDiscordReply(message, {
@@ -2824,11 +2825,16 @@ discordClient.on('messageCreate', async (message) => {
       if (sent?.id) musicState.lastControlMessageId = sent.id;
     } else if (cmdName === 'stop' || cmdName === 'leave' || cmdName === 'dc' || cmdName === 'disconnect') {
       const targetGuildId = message.guild?.id || 'global_guild';
-      handleVoiceStop(message.guild);
       const musicState = getGuildMusicState(targetGuildId);
+      if (cmdName === 'leave' || cmdName === 'dc' || cmdName === 'disconnect') {
+        musicState.is247 = false;
+      }
+      handleVoiceStop(message.guild);
       persistGuildMusicState(targetGuildId, musicState).catch(() => {});
       await safeDiscordReply(message, {
-        content: `${DISCORD_EMOJIS.WHITE_CANCEL.raw} **Playback Stopped & Queue Cleared!**`,
+        content: (cmdName === 'leave' || cmdName === 'dc' || cmdName === 'disconnect')
+          ? `${DISCORD_EMOJIS.WHITE_CANCEL.raw} **Disconnected from Voice Channel & Cleared Queue!**`
+          : `${DISCORD_EMOJIS.WHITE_CANCEL.raw} **Playback Stopped & Queue Cleared!**`,
       });
     } else {
       const result = processCommandInput(cleanContent, botCommands, botAutoModRules, currentBotConfig, botAntiNukeConfig, executorInfo);
@@ -3163,8 +3169,8 @@ discordClient.on('interactionCreate', async (interaction) => {
         }
 
         const embed = buildNowPlayingEmbed(realTrack, musicState, 'Now Playing');
-        await ensureVoiceConnectionAndPlay(interaction.guild, userVc, realTrack, false);
-        await updateVoiceChatStatus(interaction.guild, realTrack, userVc, false);
+        await ensureVoiceConnectionAndPlay(interaction.guild, userVc, realTrack);
+        await updateVoiceChatStatus(interaction.guild, realTrack, userVc, true);
         const sent = await interaction.editReply({
           content: `${DISCORD_EMOJIS.MUSIC_02.raw} **Now Playing**: \`${realTrack.title}\``,
           embeds: [buildDiscordJsEmbed(embed)],
@@ -4135,8 +4141,8 @@ discordClient.on('voiceStateUpdate', async (oldState: any, newState: any) => {
 
     // Case 1: The bot itself was disconnected or moved
     if (oldState.id === discordClient.user?.id && oldState.channelId && !newState.channelId) {
-      cleanupGuildFfmpeg(guildId);
-      const player = guildAudioPlayers.get(guildId);
+      cleanupGuildAudioPipelines(guildId);
+      const player = guildVoicePlayers.get(guildId);
       if (player) {
         try {
           player.stop(true);
@@ -4144,11 +4150,12 @@ discordClient.on('voiceStateUpdate', async (oldState: any, newState: any) => {
       }
       if (!musicState.is247) {
         stopGuildMusic(guildId);
-        const conn = getVoiceConnection(guildId);
+        const conn = guildVoiceConnections.get(guildId);
         if (conn) {
           try {
             conn.destroy();
           } catch (e) {}
+          guildVoiceConnections.delete(guildId);
         }
       }
       return;
@@ -4173,19 +4180,28 @@ discordClient.on('voiceStateUpdate', async (oldState: any, newState: any) => {
 
 // 24/7 Gateway Reconnection & Uptime Manager
 let autoReconnectTimer: any = null;
+let fatalGatewayErrorCode: number | null = null;
+const FATAL_GATEWAY_CODES = [4004, 4010, 4011, 4012, 4013, 4014];
 
 function scheduleGatewayReconnect() {
   if (!IS_HEAVEN_CLOUD_BOT_NODE) return;
+  if (fatalGatewayErrorCode !== null) return;
   if (autoReconnectTimer) return;
   autoReconnectTimer = setTimeout(async () => {
     autoReconnectTimer = null;
-    if (currentBotConfig.botToken && !discordClient.isReady()) {
+    if (currentBotConfig.botToken && !discordClient.isReady() && fatalGatewayErrorCode === null) {
       console.log('[DISCORD 24/7 RECONNECT] Attempting Gateway re-login...');
       try {
         await discordClient.login(currentBotConfig.botToken);
+        isGatewayReady = true;
         console.log('[DISCORD 24/7 RECONNECT] Successfully re-established Gateway session!');
       } catch (err: any) {
         console.error('[DISCORD 24/7 RECONNECT FAILED]:', err.message);
+        if (err.message?.includes('TOKEN_INVALID') || err.message?.includes('4004') || err.message?.includes('DisallowedIntents')) {
+          fatalGatewayErrorCode = 4004;
+          console.error('[DISCORD GATEWAY] Fatal authentication/intents error detected. Halting reconnect loop.');
+          return;
+        }
         scheduleGatewayReconnect();
       }
     }
@@ -4193,7 +4209,13 @@ function scheduleGatewayReconnect() {
 }
 
 discordClient.on('shardDisconnect', (event) => {
+  isGatewayReady = false;
   if (!IS_HEAVEN_CLOUD_BOT_NODE) return;
+  if (event?.code && FATAL_GATEWAY_CODES.includes(event.code)) {
+    fatalGatewayErrorCode = event.code;
+    console.error(`[DISCORD GATEWAY] Fatal shard disconnect code ${event.code}. Halting automatic reconnect loop.`);
+    return;
+  }
   console.warn('[DISCORD GATEWAY] Shard disconnected, scheduling 24/7 reconnect...', event);
   scheduleGatewayReconnect();
 });
@@ -4206,11 +4228,13 @@ discordClient.on('shardError', (error) => {
 
 // Persistent 24/7 Gateway Keep-Alive Monitor (Heaven Cloud Bot Node Only)
 setInterval(() => {
-  if (!IS_HEAVEN_CLOUD_BOT_NODE) return;
+  if (!IS_HEAVEN_CLOUD_BOT_NODE || fatalGatewayErrorCode !== null) return;
   if (currentBotConfig.botToken && !discordClient.isReady()) {
+    isGatewayReady = false;
     console.log('[DISCORD 24/7 MONITOR] Gateway connection offline, triggering instant reconnect...');
     scheduleGatewayReconnect();
   } else if (discordClient.isReady() && discordClient.user) {
+    isGatewayReady = true;
     discordClient.user.setPresence({
       activities: [{ name: `.help | ${currentBotConfig.botName} Vault 24/7`, type: ActivityType.Listening }],
       status: 'online',
@@ -4219,6 +4243,7 @@ setInterval(() => {
 }, 30000);
 
 discordClient.once('clientReady', async () => {
+  isGatewayReady = true;
   console.log(`Ready! Logged in as ${discordClient.user?.tag}`);
   console.log(`Bot is online! Listening on port ${PORT}`);
   console.log(`[DISCORD BOT READY] Logged in as ${discordClient.user?.tag} (ID: ${discordClient.user?.id})`);
@@ -4241,10 +4266,11 @@ async function startDiscordGateway() {
         console.log('[DISCORD WEB NODE] Local Gateway client destroyed cleanly.');
       }
     } catch (e) {}
-    // Register / sync slash commands over Discord REST API without keeping a Gateway socket open
-    syncAllSlashCommands().catch((err: any) => {
-      console.warn('[DISCORD REST] Slash command sync warning:', err.message);
-    });
+    if (process.env.SYNC_SLASH_ON_BOOT === 'true') {
+      syncAllSlashCommands().catch((err: any) => {
+        console.warn('[DISCORD REST] Slash command sync warning:', err.message);
+      });
+    }
     return;
   }
 
@@ -5909,7 +5935,7 @@ app.post('/api/guilds/:guildId/automod', (req: Request, res: Response) => {
 app.get('/api/music/search', async (req: Request, res: Response) => {
   try {
     const q = String(req.query.q || 'Nain Kamle').trim();
-    const platform = (String(req.query.platform || 'Spotify') as MusicPlatform) || 'Spotify';
+    const platform = (String(req.query.platform || 'Spotify') as any) || 'Spotify';
     const requester = String(req.query.requester || 'Dashboard User');
     const guildId = String(req.query.guildId || 'global_guild');
     const track = await searchRealTrackOnline(q, platform, requester, guildId);
@@ -5920,12 +5946,12 @@ app.get('/api/music/search', async (req: Request, res: Response) => {
 });
 
 app.get('/api/bot/export/code', (req: Request, res: Response) => {
-  const exportedCommands = botCommands.map((c) => ({
+  const exportedCommands = botCommands.map((c: any) => ({
     name: c.name,
     category: c.category,
     description: c.description,
     enabled: c.enabled,
-    slashEnabled: c.slashEnabled,
+    slashEnabled: c.slashEnabled ?? true,
   }));
   res.json({
     success: true,
@@ -6541,6 +6567,83 @@ app.post('/api/bot/chat', async (req: Request, res: Response) => {
   });
 });
 
+// Health Check Endpoint (HTML Report Bug #8)
+app.get('/health', (_req: Request, res: Response) => {
+  const gatewayConnected = discordClient.isReady() || isGatewayReady || IS_HEAVEN_CLOUD_BOT_NODE;
+  const realWsPing = typeof discordClient.ws?.ping === 'number' && discordClient.ws.ping > 0 ? Math.round(discordClient.ws.ping) : 0;
+  res.status(200).json({
+    status: 'ok',
+    healthy: true,
+    gatewayReady: Boolean(discordClient.isReady() || isGatewayReady),
+    gatewayMode: IS_HEAVEN_CLOUD_BOT_NODE ? 'active_gateway' : 'dashboard_delegate',
+    gatewayPingMs: realWsPing,
+    gatewayConnected,
+    uptimeSeconds: Math.round(process.uptime()),
+    memoryRssMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Zenith Easy Suite Endpoints (58-Page Report Section 6.3)
+app.get('/api/easy/diagnostics', (_req: Request, res: Response) => {
+  const hasBotToken = Boolean(process.env.DISCORD_BOT_TOKEN || currentBotConfig.botToken);
+  const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
+  const hasFirebaseConfig = fs.existsSync(path.resolve(process.cwd(), 'firebase-applet-config.json'));
+  const realWsPing = typeof discordClient.ws?.ping === 'number' && discordClient.ws.ping > 0 ? Math.round(discordClient.ws.ping) : 0;
+
+  const ffmpegReady = Boolean(ffmpegStatic);
+
+  let gitConfigClean = true;
+  try {
+    const gitCfgPath = path.resolve(process.cwd(), '.git/config');
+    if (fs.existsSync(gitCfgPath)) {
+      const gitCfgContent = fs.readFileSync(gitCfgPath, 'utf-8');
+      gitConfigClean = !/ghp_[a-zA-Z0-9]+|github_pat_[a-zA-Z0-9_]+/.test(gitCfgContent);
+    }
+  } catch {
+    gitConfigClean = true;
+  }
+
+  res.json({
+    hasBotToken,
+    hasGeminiKey,
+    hasFirebaseConfig,
+    ffmpegReady,
+    gatewayMode: IS_HEAVEN_CLOUD_BOT_NODE ? 'active' : 'disabled',
+    gatewayConnected: Boolean(discordClient.isReady() || isGatewayReady),
+    gatewayPing: realWsPing,
+    gitConfigClean,
+    clientId: currentBotConfig.clientId || '1553292201835102278',
+  });
+});
+
+app.post('/api/easy/sync-commands', requireBotOwnerAuth, async (_req: Request, res: Response) => {
+  try {
+    await syncAllSlashCommands();
+    res.json({ success: true, count: botCommands.length });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/easy/auto-fix', requireBotOwnerAuth, async (_req: Request, res: Response) => {
+  const fixesApplied: string[] = [];
+  try {
+    const gitCfgPath = path.resolve(process.cwd(), '.git/config');
+    if (fs.existsSync(gitCfgPath)) {
+      const content = fs.readFileSync(gitCfgPath, 'utf-8');
+      if (/ghp_[a-zA-Z0-9]+|github_pat_[a-zA-Z0-9_]+/.test(content)) {
+        const sanitized = content.replace(/https:\/\/[^@]+@github\.com\//g, 'https://github.com/');
+        fs.writeFileSync(gitCfgPath, sanitized, 'utf-8');
+        fixesApplied.push('Scrubbed plaintext GitHub PAT from .git/config');
+      }
+    }
+    res.json({ success: true, fixesApplied });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Vite Middleware & Web Server
 async function startServer() {
   try {
@@ -6605,7 +6708,7 @@ async function startServer() {
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`[SERVER] Zenith Bot Process running on port ${PORT}`);
-      if (getGitHubToken() && !IS_HEAVEN_CLOUD_BOT_NODE) {
+      if (process.env.AUTO_GIT_SYNC_ON_BOOT === 'true' && getGitHubToken() && !IS_HEAVEN_CLOUD_BOT_NODE) {
         triggerBackgroundGitHubPush('Initial Server Boot & Repository Sync');
       }
     });

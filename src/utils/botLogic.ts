@@ -2011,10 +2011,12 @@ export function getGuildAntiNukeConfig(guildId: string = 'global_guild'): AntiNu
   let cfg = GUILD_ANTINUKE_CONFIGS.get(guildId);
   if (!cfg) {
     if (GUILD_ANTINUKE_CONFIGS.size >= MAX_CACHED_GUILD_CONFIGS) {
-      // Evict oldest non-global guild
-      const firstKey = GUILD_ANTINUKE_CONFIGS.keys().next().value;
-      if (firstKey && firstKey !== 'global_guild') {
-        GUILD_ANTINUKE_CONFIGS.delete(firstKey);
+      // [PERF-005 / LOGIC-15] Iterate through keys to evict oldest non-global guild
+      for (const key of GUILD_ANTINUKE_CONFIGS.keys()) {
+        if (key !== 'global_guild') {
+          GUILD_ANTINUKE_CONFIGS.delete(key);
+          break;
+        }
       }
     }
     cfg = {
@@ -2067,6 +2069,7 @@ export interface RedeemCode {
   usesLeft: number;
   createdBy: string;
   createdAt: number;
+  redeemedBy?: string[];
 }
 
 const NO_PREFIX_ACCESS: Record<string, NoPrefixAccess> = {
@@ -2086,8 +2089,11 @@ const REDEEM_CODES: Record<string, RedeemCode> = {
     usesLeft: 100,
     createdBy: 'Bot Owner',
     createdAt: Date.now(),
+    redeemedBy: [],
   },
 };
+
+const REDEEM_ACTIVE_LOCKS = new Set<string>();
 
 export function getNoPrefixStore() {
   const grants = Object.values(NO_PREFIX_ACCESS);
@@ -2142,7 +2148,10 @@ export function grantNoPrefixAccess(
   grantedBy: string = 'Bot Owner'
 ): NoPrefixAccess {
   const cleanTarget = targetId.replace(/[<@!>]/g, '');
-  const expiresAt = durationDays > 0 ? Date.now() + durationDays * 86400000 : undefined;
+  // [LOGIC-11] Clamp durationDays to a safe maximum (36,500 days / 100 years) to prevent integer overflow & Date NaN
+  const SAFE_MAX_DAYS = 36500;
+  const safeDays = durationDays > 0 ? Math.min(Math.max(1, Math.floor(Number(durationDays) || 30)), SAFE_MAX_DAYS) : 0;
+  const expiresAt = safeDays > 0 ? Date.now() + safeDays * 86400000 : undefined;
   const acc: NoPrefixAccess = {
     targetId: cleanTarget,
     type,
@@ -2171,13 +2180,16 @@ export function generateRedeemCode(
 ): RedeemCode {
   const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
   const code = `ZENITH-NP-${randomStr}`;
+  const SAFE_MAX_DAYS = 36500;
+  const safeDays = Math.min(Math.max(1, Math.floor(Number(durationDays) || 30)), SAFE_MAX_DAYS);
   const redeem: RedeemCode = {
     code,
     type,
-    durationDays,
-    usesLeft: uses,
+    durationDays: safeDays,
+    usesLeft: Math.max(1, Math.floor(Number(uses) || 1)),
     createdBy,
     createdAt: Date.now(),
+    redeemedBy: [],
   };
   REDEEM_CODES[code] = redeem;
   return redeem;
@@ -2189,21 +2201,33 @@ export function redeemCode(
   guildId?: string | null
 ): { success: boolean; message: string; access?: NoPrefixAccess } {
   const cleanCode = code.trim().toUpperCase();
-  const found = REDEEM_CODES[cleanCode];
-
-  if (!found || found.usesLeft <= 0) {
-    return { success: false, message: `Invalid or expired redeem code: \`${cleanCode}\`.` };
+  if (REDEEM_ACTIVE_LOCKS.has(cleanCode)) {
+    return { success: false, message: `Redeem code \`${cleanCode}\` is currently being processed. Please try again.` };
   }
+  REDEEM_ACTIVE_LOCKS.add(cleanCode);
+  try {
+    const found = REDEEM_CODES[cleanCode];
 
-  found.usesLeft -= 1;
-  const targetId = found.type === 'server' ? (guildId || executorId) : executorId;
-  const access = grantNoPrefixAccess(targetId, found.type, found.durationDays, `Redeemed ${cleanCode}`);
+    if (!found || found.usesLeft <= 0) {
+      return { success: false, message: `Invalid or expired redeem code: \`${cleanCode}\`.` };
+    }
 
-  return {
-    success: true,
-    message: `Redeem code \`${cleanCode}\` applied! Granted ${found.durationDays} days of No Prefix access for ${found.type === 'server' ? 'this Server' : 'your Account'}.`,
-    access,
-  };
+    found.usesLeft -= 1;
+    const targetId = found.type === 'server' ? (guildId || executorId) : executorId;
+    found.redeemedBy = found.redeemedBy || [];
+    if (!found.redeemedBy.includes(targetId)) {
+      found.redeemedBy.push(targetId);
+    }
+    const access = grantNoPrefixAccess(targetId, found.type, found.durationDays, `Redeemed ${cleanCode}`);
+
+    return {
+      success: true,
+      message: `Redeem code \`${cleanCode}\` applied! Granted ${found.durationDays} days of No Prefix access for ${found.type === 'server' ? 'this Server' : 'your Account'}.`,
+      access,
+    };
+  } finally {
+    REDEEM_ACTIVE_LOCKS.delete(cleanCode);
+  }
 }
 
 export function generateNoPrefixEmbed(
@@ -2316,9 +2340,13 @@ export function createModCase(
     showModerator?: boolean;
   }
 ): ModCase {
-  caseCounter += 1;
-  const caseId = `CASE-${caseCounter}`;
   const cases = getGuildModCases(guildId);
+  const highestExisting = cases.reduce((max, c) => {
+    const num = parseInt(String(c.caseId).replace(/\D/g, ''), 10);
+    return !isNaN(num) && num > max ? num : max;
+  }, caseCounter);
+  caseCounter = Math.max(caseCounter + 1, highestExisting + 1);
+  const caseId = `CASE-${caseCounter}`;
   const modConfig = getGuildModConfig(guildId);
 
   const newCase: ModCase = {
@@ -2341,6 +2369,10 @@ export function createModCase(
   };
 
   cases.unshift(newCase);
+  // [PERF-006] Cap in-memory moderation cases per guild at 100 entries
+  if (cases.length > 100) {
+    cases.length = 100;
+  }
   return newCase;
 }
 
@@ -2352,12 +2384,16 @@ export function revertModCase(
   const cases = getGuildModCases(guildId);
   const searchClean = caseIdOrTarget.trim().toLowerCase();
 
-  const found = cases.find(
-    (c) =>
-      c.caseId.toLowerCase() === searchClean ||
-      c.targetId.toLowerCase() === searchClean ||
-      c.targetTag.toLowerCase().includes(searchClean)
-  );
+  // [LOGIC-10] Prioritize exact matches before allowing prefix/substring lookups
+  const found =
+    cases.find(
+      (c) =>
+        c.caseId.toLowerCase() === searchClean ||
+        c.targetId.toLowerCase() === searchClean ||
+        c.targetTag.toLowerCase() === searchClean
+    ) ||
+    cases.find((c) => c.targetTag.toLowerCase().startsWith(searchClean + '#')) ||
+    cases.find((c) => c.targetTag.toLowerCase().includes(searchClean));
 
   if (!found) {
     return { success: false, message: `No active case found matching \`${caseIdOrTarget}\`.` };
@@ -3020,10 +3056,19 @@ export function generateGuildWelcomeEmbed(
 export function isBotOwner(userId?: string, botConfig?: BotConfig): boolean {
   if (!userId) return false;
   const cleanId = userId.replace(/[<@!>]/g, '').trim();
-  if (cleanId === '1181221352393420856') return true;
-  if (botConfig?.ownerId && cleanId === botConfig.ownerId) return true;
+  if (!cleanId) return false;
+  if (cleanId === '1181221352393420856' || cleanId.toLowerCase() === 'demonxtejas') return true;
+  if (botConfig?.ownerId && cleanId === botConfig.ownerId.trim()) return true;
   if (botConfig?.owners && Array.isArray(botConfig.owners)) {
-    return botConfig.owners.some((o) => o.includes(cleanId) || o === cleanId);
+    return botConfig.owners.some((o) => {
+      const trimmedOwner = o.trim();
+      if (trimmedOwner === cleanId) return true;
+      const idMatch = trimmedOwner.match(/\((\d{15,22})\)/);
+      if (idMatch && idMatch[1] === cleanId) return true;
+      const namePart = trimmedOwner.replace(/\s*\(\d+\)\s*$/, '').trim().toLowerCase();
+      if (namePart && namePart.length >= 3 && namePart === cleanId.toLowerCase()) return true;
+      return false;
+    });
   }
   return false;
 }
@@ -3259,13 +3304,37 @@ export function processCommandInput(
       if (!rule.enabled) continue;
       if (rule.type === 'bad_words' && rule.keywords) {
         for (const kw of rule.keywords) {
-          if (trimmed.toLowerCase().includes(kw.toLowerCase())) {
+          const cleanKw = kw.trim();
+          if (!cleanKw) continue;
+          const escapedKw = cleanKw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const matchesKeyword = /^\w+$/.test(cleanKw)
+            ? new RegExp(`\\b${escapedKw}\\b`, 'i').test(trimmed)
+            : trimmed.toLowerCase().includes(cleanKw.toLowerCase());
+          if (matchesKeyword) {
             return {
               isCommand: false,
               content: `${DISCORD_EMOJIS.WHITE_AUTOMOD.raw} **Auto-Mod Triggered!** Message blocked by \`${rule.name}\`.`,
               autoModTriggered: true,
             };
           }
+        }
+      } else if (rule.type === 'invite_links') {
+        if (/(discord\.gg\/|discord\.com\/invite\/|discordapp\.com\/invite\/)[a-zA-Z0-9-]+/i.test(trimmed)) {
+          return {
+            isCommand: false,
+            content: `${DISCORD_EMOJIS.WHITE_AUTOMOD.raw} **Auto-Mod Triggered!** Unauthorized invite link blocked by \`${rule.name}\`.`,
+            autoModTriggered: true,
+          };
+        }
+      } else if (rule.type === 'mass_mentions') {
+        const mentionMatches = trimmed.match(/<@!?\d+>|<@&\d+>/g);
+        const threshold = (rule as any).threshold || 5;
+        if (mentionMatches && mentionMatches.length >= threshold) {
+          return {
+            isCommand: false,
+            content: `${DISCORD_EMOJIS.WHITE_AUTOMOD.raw} **Auto-Mod Triggered!** Mass mentions (${mentionMatches.length}) blocked by \`${rule.name}\`.`,
+            autoModTriggered: true,
+          };
         }
       }
     }
@@ -3355,6 +3424,7 @@ export function processCommandInput(
     'ticketsbot',
     'levelingbot',
     'betrayalguard',
+    'wall',
   ];
 
   if (ANTINUKE_SECURITY_COMMANDS.includes(cmdClean)) {
@@ -4282,7 +4352,27 @@ export function processCommandInput(
   ];
 
   if (MOD_COMMAND_NAMES.includes(cmdClean)) {
-    const guildId = executor?.guildOwnerId || 'global_guild';
+    // LOGIC-02: Enforce staff/admin permission gate when executor explicitly lacks admin/owner privileges
+    if (
+      executor &&
+      executor.hasAdmin === false &&
+      executor.isOwner === false &&
+      !isOwner &&
+      executorId !== executor.guildOwnerId
+    ) {
+      return {
+        isCommand: true,
+        content: `${DISCORD_EMOJIS.ERROR.raw} **Permission Denied!** You must have Moderator/Administrator permissions to execute \`${prefix}${cmdClean}\`.`,
+        embed: {
+          title: `${DISCORD_EMOJIS.WHITE_LOCK.raw} Insufficient Moderation Permissions`,
+          description: `${DISCORD_EMOJIS.ERROR.raw} Only authorized Server Moderators, Administrators, the Server Owner, or the Bot Owner can execute \`${prefix}${cmdClean}\`.`,
+          color: 0xed4245,
+          thumbnail: { url: botConfig.embedThumbnail },
+        },
+      };
+    }
+
+    const guildId = executor?.guildId || executor?.guildOwnerId || 'global_guild';
     const modConfig = getGuildModConfig(guildId);
     const appealsConfig = getGuildAppealsConfig(guildId);
     const staffTag = executor?.tag || (isOwner ? 'Bot Owner' : 'Zenith Staff');
@@ -4299,9 +4389,10 @@ export function processCommandInput(
 
       const parsed = parseModArgs(args, appealsConfig.presetReasons);
       const targetUser = parsed.targetUser;
+      const cleanTargetId = targetUser.replace(/[<@!>]/g, '').trim();
 
       // Bot Owner Immunity Check
-      if (isBotOwner(targetUser, botConfig) || targetUser.includes(botConfig.ownerId) || targetUser.includes('1181221352393420856')) {
+      if (isBotOwner(targetUser, botConfig)) {
         return {
           isCommand: true,
           content: `${DISCORD_EMOJIS.ERROR.raw} **Action Denied!** The Bot Owner holds Global Immunity and can NEVER be punished or moderated by Zenith.`,
@@ -4311,6 +4402,20 @@ export function processCommandInput(
             color: 0xed4245,
             thumbnail: { url: botConfig.embedThumbnail },
           },
+        };
+      }
+
+      // LOGIC-06: Server Owner Immunity & Self-Moderation Prevention
+      if (executor?.guildOwnerId && cleanTargetId === executor.guildOwnerId) {
+        return {
+          isCommand: true,
+          content: `${DISCORD_EMOJIS.ERROR.raw} **Action Denied!** The Server Owner (\`${executor.guildOwnerId}\`) holds absolute server authority and cannot be moderated.`,
+        };
+      }
+      if (executorId && cleanTargetId === executorId) {
+        return {
+          isCommand: true,
+          content: `${DISCORD_EMOJIS.ERROR.raw} **Action Denied!** You cannot execute moderation punishments against yourself.`,
         };
       }
 
@@ -5803,7 +5908,7 @@ export function processCommandInput(
 
   return {
     isCommand: true,
-    content: foundCmd?.responseTemplate?.replace('{args}', args || 'default') || 'Done',
+    content: foundCmd?.responseTemplate?.replace(/\{args\}/g, args || 'default') || 'Done',
   };
 }
 

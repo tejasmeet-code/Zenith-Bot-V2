@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DiscordEmoji, RichDiscordText } from './components/DiscordEmoji.tsx';
+import { EasySetupWidget } from './components/EasySetupWidget.tsx';
 import {
   ZenithIntroPage,
   GuildSummary,
@@ -820,7 +821,7 @@ export function App() {
             embed: data.embed,
             dropdownOptions: data.dropdownOptions,
           },
-          ...prev,
+          ...prev.slice(0, 49),
         ]);
       }
     } finally {
@@ -973,7 +974,9 @@ export function App() {
                 src={botStatus.avatarUrl || DEFAULT_ZENITH_BOT_ICON}
                 alt="Zenith Bot Icon"
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = DEFAULT_ZENITH_BOT_ICON;
+                  const target = e.currentTarget as HTMLImageElement;
+                  target.onerror = null;
+                  target.src = DEFAULT_ZENITH_BOT_ICON;
                 }}
                 className="w-8 h-8 rounded-xl object-cover border border-white/15 shadow-md"
               />
@@ -1079,7 +1082,7 @@ export function App() {
                   .filter((g) => g.botPresent !== false)
                   .map((g) => (
                     <option key={g.id} value={g.id} className="bg-[#0E1017] text-white">
-                      {g.name} ({g.memberCount.toLocaleString()} members)
+                      {g.name} ({(g.memberCount ?? 0).toLocaleString()} members)
                     </option>
                   ))}
               </select>
@@ -1095,7 +1098,9 @@ export function App() {
                   src={userSession.avatar || DEFAULT_ZENITH_BOT_ICON}
                   alt={userSession.username}
                   onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = DEFAULT_ZENITH_BOT_ICON;
+                    const target = e.currentTarget as HTMLImageElement;
+                    target.onerror = null;
+                    target.src = DEFAULT_ZENITH_BOT_ICON;
                   }}
                   className="w-6 h-6 rounded-full object-cover"
                 />
@@ -1138,7 +1143,9 @@ export function App() {
                 }
                 alt={activeGuild?.name || 'Server'}
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = DEFAULT_ZENITH_BOT_ICON;
+                  const target = e.currentTarget as HTMLImageElement;
+                  target.onerror = null;
+                  target.src = DEFAULT_ZENITH_BOT_ICON;
                 }}
                 className="w-12 h-12 rounded-2xl object-cover ring-2 ring-indigo-500/50"
               />
@@ -1158,7 +1165,9 @@ export function App() {
                     }
                     alt="Bot Icon"
                     onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = DEFAULT_ZENITH_BOT_ICON;
+                      const target = e.currentTarget as HTMLImageElement;
+                      target.onerror = null;
+                      target.src = DEFAULT_ZENITH_BOT_ICON;
                     }}
                     className="w-4 h-4 rounded-full object-cover"
                   />
@@ -1201,7 +1210,7 @@ export function App() {
               <div className="p-2 rounded-xl bg-white/[0.03]">
                 <div className="text-[10px] font-mono text-[#9499B3]">MEMBERS</div>
                 <div className="text-xs font-bold font-mono text-white">
-                  {(activeGuild?.memberCount || 1420).toLocaleString()}
+                  {(activeGuild?.memberCount ?? 1420).toLocaleString()}
                 </div>
               </div>
               <div className="p-2 rounded-xl bg-white/[0.03]">
@@ -1291,14 +1300,16 @@ export function App() {
                         }
                         alt={g.name}
                         onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).src = DEFAULT_ZENITH_BOT_ICON;
+                          const target = e.currentTarget as HTMLImageElement;
+                          target.onerror = null;
+                          target.src = DEFAULT_ZENITH_BOT_ICON;
                         }}
                         className="w-7 h-7 rounded-lg object-cover shrink-0"
                       />
                       <div className="truncate">
                         <div className="text-xs font-semibold truncate">{g.name}</div>
                         <div className="text-[10px] font-mono text-[#9499B3]">
-                          {g.memberCount.toLocaleString()} members
+                          {(g.memberCount ?? 0).toLocaleString()} members
                         </div>
                       </div>
                     </div>
@@ -1386,6 +1397,9 @@ export function App() {
                   </button>
                 </div>
               </div>
+
+              {/* Zenith Easy Control & Setup Center (1-Click Diagnostics, Invite Generator, Slash Sync) */}
+              <EasySetupWidget />
 
               {/* GitHub Repository & Auto-Deployment Card */}
               <div className="p-6 rounded-2xl bg-[#0E1017] border border-emerald-500/30 space-y-4">
@@ -1491,7 +1505,7 @@ export function App() {
                   <div className="p-3 rounded-xl bg-[#07080C] border border-white/[0.06]">
                     <div className="text-[10px] text-[#9499B3]">LAST PUSHED</div>
                     <div className="text-white font-bold truncate mt-0.5">
-                      {githubStatus?.lastSyncedAt
+                      {githubStatus?.lastSyncedAt && !isNaN(Date.parse(githubStatus.lastSyncedAt))
                         ? new Date(githubStatus.lastSyncedAt).toLocaleTimeString()
                         : 'Active'}
                     </div>

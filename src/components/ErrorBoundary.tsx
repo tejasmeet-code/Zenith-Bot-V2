@@ -29,7 +29,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
           <div className="max-w-md w-full bg-[#0E1017] border border-red-500/30 rounded-2xl p-6 shadow-2xl text-center space-y-4">
             <div className="flex justify-center">
               <img
-                src={DISCORD_EMOJIS.ERROR.url}
+                src={`https://cdn.discordapp.com/emojis/${DISCORD_EMOJIS.ERROR.id}.gif`}
                 alt="Error"
                 className="w-12 h-12 object-contain"
               />
