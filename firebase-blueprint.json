@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "BotConfig": {
+      "title": "Bot Config",
+      "description": "Global Discord bot identity and prefix settings",
+      "type": "object",
+      "properties": {
+        "botName": { "type": "string", "maxLength": 100 },
+        "botPrefix": { "type": "string", "maxLength": 10 },
+        "owners": { "type": "array" },
+        "developer": { "type": "string", "maxLength": 100 },
+        "clientId": { "type": "string", "maxLength": 50 },
+        "ownerId": { "type": "string", "maxLength": 50 },
+        "embedThumbnail": { "type": "string", "maxLength": 500 },
+        "embedBanner": { "type": "string", "maxLength": 500 },
+        "embedColor": { "type": "number" }
+      },
+      "required": ["botName", "botPrefix"]
+    },
+    "Command": {
+      "title": "Discord Command",
+      "description": "Slash or prefix bot command definition",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 50 },
+        "description": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 30 },
+        "prefix": { "type": "string", "maxLength": 15 },
+        "responseTemplate": { "type": "string", "maxLength": 1000 },
+        "enabled": { "type": "boolean" }
+      },
+      "required": ["name", "category", "responseTemplate"]
+    },
+    "AutoModRule": {
+      "title": "AutoMod Protection Rule",
+      "description": "Security rule for profanity or link filter",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "type": { "type": "string", "maxLength": 50 },
+        "enabled": { "type": "boolean" },
+        "action": { "type": "string", "maxLength": 20 }
+      },
+      "required": ["name", "type", "enabled"]
+    }
+  },
+  "firestore": {
+    "/bot/settings": {
+      "schema": "BotConfig",
+      "description": "Single document holding active Discord bot configuration"
+    },
+    "/commands/{commandId}": {
+      "schema": "Command",
+      "description": "Custom slash & prefix commands list"
+    },
+    "/automod/{ruleId}": {
+      "schema": "AutoModRule",
+      "description": "Active AutoMod protection rules"
+    }
+  }
+}
