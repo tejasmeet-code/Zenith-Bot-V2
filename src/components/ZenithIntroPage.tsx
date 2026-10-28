@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { DiscordEmoji } from './DiscordEmoji.tsx';
+import { ZenithOpeningAnimation } from './ZenithOpeningAnimation.tsx';
 
 export const DEFAULT_ZENITH_BOT_ICON =
   'https://cdn.discordapp.com/avatars/1553292201835102278/286d052869b71984debd082f899177be.png?size=256';
@@ -118,12 +119,6 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
   const [discordIdentifierInput, setDiscordIdentifierInput] = useState('demonxtejas');
   const [verifyingBotAuth, setVerifyingBotAuth] = useState(false);
 
-  useEffect(() => {
-    if (!showOpeningSplash) return;
-    const timer = setTimeout(() => setShowOpeningSplash(false), 1150);
-    return () => clearTimeout(timer);
-  }, [showOpeningSplash]);
-
   const resolvedBotIcon = botAvatarUrl || DEFAULT_ZENITH_BOT_ICON;
   const clientId = oauthConfig?.clientId || '1553292201835102278';
   const currentOriginRedirect =
@@ -198,6 +193,14 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
   if (mode === 'servers') {
     return (
       <div className="min-h-screen bg-[#090A0F] text-[#F4F6FB] flex flex-col justify-between">
+        <ZenithOpeningAnimation
+          isOpen={showOpeningSplash}
+          onComplete={() => setShowOpeningSplash(false)}
+          botAvatarUrl={resolvedBotIcon}
+          botTag={botTag}
+          botPing={botPing}
+          variant="landing"
+        />
         {/* Top Navbar */}
         <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#090A0F]/90 backdrop-blur-xl">
           <div className="max-w-7xl mx-auto px-4 sm:px-8 h-20 flex items-center justify-between gap-4">
@@ -226,6 +229,15 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowOpeningSplash(true)}
+                className="px-3.5 py-2 rounded-xl bg-[#12141D] hover:bg-white/[0.08] border border-cyan-500/30 text-xs font-mono font-semibold text-cyan-200 flex items-center gap-1.5 transition cursor-pointer"
+                aria-label="Replay Opening Animation"
+              >
+                <DiscordEmoji name="loop" id="1555133388149628980" size={14} />
+                <span>Replay Intro</span>
+              </button>
               {userSession ? (
                 <div className="flex items-center gap-2.5 bg-[#12141D] border border-white/10 rounded-xl px-3.5 py-2">
                   <img
@@ -413,36 +425,15 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
   // ===========================================================================
   return (
     <div className="min-h-screen bg-[#090A0F] text-[#F4F6FB] flex flex-col justify-between selection:bg-indigo-500 selection:text-white zenith-grid-bg">
-      {/* OPENING PORTAL ANIMATION OVERLAY */}
-      {showOpeningSplash && (
-        <div
-          onClick={() => setShowOpeningSplash(false)}
-          className="fixed inset-0 z-50 bg-[#07080C] flex flex-col items-center justify-center p-6 animate-zenith-splash cursor-pointer"
-        >
-          <div className="relative flex items-center justify-center mb-6">
-            <div className="w-36 h-36 rounded-full border border-indigo-500/30 border-t-indigo-400 animate-zenith-orbit absolute" />
-            <div className="w-28 h-28 rounded-full border border-cyan-400/25 border-b-cyan-300 animate-zenith-orbit-reverse absolute" />
-            <img
-              src={resolvedBotIcon}
-              alt="Zenith Bot"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).src = DEFAULT_ZENITH_BOT_ICON;
-              }}
-              className="w-20 h-20 rounded-3xl object-cover shadow-2xl shadow-indigo-500/40 border-2 border-indigo-400/60"
-            />
-          </div>
-          <div className="font-display font-extrabold text-2xl sm:text-3xl text-white tracking-tight">
-            Zenith Bot
-          </div>
-          <div className="text-xs font-mono text-cyan-300 mt-1.5 flex items-center gap-2">
-            <span>16-Module Anti-Nuke Vault</span>
-            <span aria-hidden="true">·</span>
-            <span>320kbps Lossless Music</span>
-            <span aria-hidden="true">·</span>
-            <span>Heaven Cloud 24/7</span>
-          </div>
-        </div>
-      )}
+      {/* CHOREOGRAPHED MULTI-STAGE OPENING ANIMATION */}
+      <ZenithOpeningAnimation
+        isOpen={showOpeningSplash}
+        onComplete={() => setShowOpeningSplash(false)}
+        botAvatarUrl={resolvedBotIcon}
+        botTag={botTag}
+        botPing={botPing}
+        variant="landing"
+      />
 
       {/* Subtle Top Glow */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden z-0">
@@ -489,6 +480,15 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowOpeningSplash(true)}
+              className="px-3.5 py-2 rounded-xl bg-[#12141D] hover:bg-white/[0.08] border border-cyan-500/30 text-xs font-mono font-semibold text-cyan-200 flex items-center gap-1.5 transition cursor-pointer"
+              aria-label="Replay Opening Animation"
+            >
+              <DiscordEmoji name="loop" id="1555133388149628980" size={14} />
+              <span className="hidden sm:inline">Replay Intro</span>
+            </button>
             {userSession ? (
               <div className="flex items-center gap-3">
                 <button
@@ -543,18 +543,21 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
       {/* HERO SECTION & LIVE BOT STATS */}
       <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-8 pt-14 pb-24 flex-1 space-y-20 animate-zenith-reveal">
         <section className="text-center max-w-4xl mx-auto space-y-6 pt-4">
-          <div className="flex justify-center">
+          <div className="relative flex items-center justify-center py-4">
+            <div className="w-36 h-36 rounded-full border border-indigo-500/30 border-t-indigo-400 animate-zenith-orbit absolute pointer-events-none" />
+            <div className="w-28 h-28 rounded-full border border-cyan-400/25 border-b-cyan-300 animate-zenith-orbit-reverse absolute pointer-events-none" />
             <img
               src={resolvedBotIcon}
               alt="Zenith Bot Avatar"
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).src = DEFAULT_ZENITH_BOT_ICON;
               }}
-              className="w-24 h-24 rounded-3xl object-cover shadow-2xl shadow-[#5865F2]/30 border-2 border-[#5865F2]/50 animate-zenith-float"
+              className="w-24 h-24 rounded-3xl object-cover shadow-2xl shadow-[#5865F2]/40 border-2 border-[#5865F2]/60 animate-zenith-float relative z-10"
             />
           </div>
 
           <div className="inline-flex items-center gap-2 text-xs font-medium text-[#C4C9DF]">
+            <DiscordEmoji name="ping" id="1555133452146319391" animated={true} size={14} />
             <span>{botTag} Online</span>
             <span aria-hidden="true">·</span>
             <span className="text-emerald-400 font-mono tabular-nums">{botPing}ms Gateway</span>
@@ -809,10 +812,10 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
           <div className="bg-[#12141D] border border-white/10 rounded-3xl max-w-md w-full p-7 shadow-2xl space-y-5 text-center relative animate-zenith-modal">
             <button
               onClick={() => setShowAuthModal(false)}
-              className="absolute top-5 right-5 px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs font-semibold text-[#9499B3] hover:text-white cursor-pointer"
+              className="absolute top-5 right-5 px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs font-semibold text-[#9499B3] hover:text-white flex items-center gap-1 cursor-pointer"
               aria-label="Close modal"
             >
-              ✕
+              <DiscordEmoji name="white_cancel" id="1555133596652539988" size={14} />
             </button>
 
             <img
@@ -891,15 +894,15 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
                 className="w-full text-center text-xs text-indigo-300 hover:text-white font-mono cursor-pointer"
               >
                 {showOAuthSetupDrawer
-                  ? '▲ Hide Discord Developer Portal Redirect URLs'
-                  : '▼ Show Redirect URLs for Discord Developer Portal'}
+                  ? 'Hide Discord Developer Portal Redirect URLs'
+                  : 'Show Redirect URLs for Discord Developer Portal'}
               </button>
 
               {showOAuthSetupDrawer && (
                 <div className="mt-3 p-3.5 rounded-2xl bg-[#090A0F] border border-white/10 space-y-3">
                   <div className="space-y-1.5">
                     <div className="text-[10px] font-mono uppercase text-[#9499B3]">
-                      Add Redirect URI in Discord Developer Portal → OAuth2 → Redirects:
+                      Add Redirect URI in Discord Developer Portal - OAuth2 - Redirects:
                     </div>
                     {[publishedRedirect, currentOriginRedirect]
                       .filter((v, idx, arr) => arr.indexOf(v) === idx)
@@ -929,7 +932,7 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
                             : 'text-amber-300'
                         }
                       >
-                        {oauthConfig?.clientSecretConfigured ? 'Configured ✓' : 'Not Set'}
+                        {oauthConfig?.clientSecretConfigured ? 'Configured' : 'Not Set'}
                       </span>
                     </div>
                     <div className="flex gap-1.5">
@@ -987,10 +990,10 @@ export const ZenithIntroPage: React.FC<ZenithIntroPageProps> = ({
               </div>
               <button
                 onClick={() => setShowArchitectureModal(false)}
-                className="px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs font-semibold text-[#9499B3] hover:text-white cursor-pointer"
+                className="px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs font-semibold text-[#9499B3] hover:text-white flex items-center gap-1 cursor-pointer"
                 aria-label="Close Architecture Modal"
               >
-                ✕
+                <DiscordEmoji name="white_cancel" id="1555133596652539988" size={14} />
               </button>
             </div>
 

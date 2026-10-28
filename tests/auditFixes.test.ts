@@ -20,6 +20,12 @@ import {
   getGuildMusicState,
   enqueueOrPlayTrack,
 } from '../src/utils/lavalinkManager.ts';
+import {
+  computeOpeningPhaseState,
+  computeSpectrumBars,
+  ORBITAL_MODULE_BADGES,
+  OPENING_TOTAL_DURATION_MS,
+} from '../src/utils/openingAnimationEngine.ts';
 
 test('LOGIC-01: isBotOwner rejects partial substrings and only matches exact snowflake ID or owner username', () => {
   assert.equal(isBotOwner('1181221352393420856', DEFAULT_BOT_CONFIG), true);
@@ -219,3 +225,31 @@ test('VOICE-09 & UI-03: FFmpeg filter graph includes alimiter and queue history 
   const updatedState = getGuildMusicState('guild_audio_test');
   assert.ok(updatedState.recap24h.length <= 50);
 });
+
+test('OPENING-ANIM-01: computeOpeningPhaseState progresses through ignition, materialize, portal_split, and complete', () => {
+  const s0 = computeOpeningPhaseState(100, OPENING_TOTAL_DURATION_MS);
+  assert.equal(s0.phase, 'ignition');
+  assert.equal(s0.shutterOffsetPct, 0);
+
+  const s1 = computeOpeningPhaseState(1500, OPENING_TOTAL_DURATION_MS);
+  assert.equal(s1.phase, 'materialize');
+  assert.ok(s1.unlockedModulesCount >= 1 && s1.unlockedModulesCount <= 4);
+
+  const s2 = computeOpeningPhaseState(2800, OPENING_TOTAL_DURATION_MS);
+  assert.equal(s2.phase, 'portal_split');
+  assert.ok(s2.shutterOffsetPct > 0 && s2.shutterOffsetPct <= 100);
+  assert.equal(s2.unlockedModulesCount, 4);
+
+  const s3 = computeOpeningPhaseState(3300, OPENING_TOTAL_DURATION_MS);
+  assert.equal(s3.phase, 'complete');
+  assert.equal(s3.overallProgress, 100);
+  assert.equal(s3.shutterOffsetPct, 100);
+
+  const bars = computeSpectrumBars(24, 950);
+  assert.equal(bars.length, 24);
+  assert.ok(bars.every((b) => b >= 0.15 && b <= 1));
+
+  assert.equal(ORBITAL_MODULE_BADGES.length, 4);
+  assert.ok(ORBITAL_MODULE_BADGES.every((b) => /^\d{19}$/.test(b.emojiId)));
+});
+

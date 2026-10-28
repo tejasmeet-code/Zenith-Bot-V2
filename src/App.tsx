@@ -8,6 +8,7 @@ import {
   HeavenCloudStatus,
   DEFAULT_ZENITH_BOT_ICON,
 } from './components/ZenithIntroPage.tsx';
+import { ZenithOpeningAnimation } from './components/ZenithOpeningAnimation.tsx';
 
 type DashboardTab =
   | 'overview'
@@ -353,12 +354,6 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  useEffect(() => {
-    if (!showDashboardBoot) return;
-    const timer = setTimeout(() => setShowDashboardBoot(false), 1150);
-    return () => clearTimeout(timer);
-  }, [showDashboardBoot]);
-
   // Listen for Discord OAuth2 Popup via PostMessage, BroadcastChannel, LocalStorage & Session Polling
   useEffect(() => {
     const completeLogin = (user?: DiscordUserSession) => {
@@ -523,6 +518,7 @@ export function App() {
   const handleEnterControlCenter = (guildId?: string, initialTab?: string) => {
     if (guildId) setSelectedGuildId(guildId);
     if (initialTab) setActiveTab(initialTab as DashboardTab);
+    setShowDashboardBoot(true);
     setViewMode('dashboard');
   };
 
@@ -996,12 +992,12 @@ export function App() {
             <button
               type="button"
               onClick={() => setShowDashboardBoot(true)}
-              className="px-2.5 py-1.5 rounded-xl bg-[#0E1017] hover:bg-white/[0.06] border border-white/10 text-xs font-mono text-[#9499B3] hover:text-white flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3 py-1.5 rounded-xl bg-[#0E1017] hover:bg-white/[0.06] border border-cyan-500/35 text-xs font-mono font-semibold text-cyan-200 hover:text-white flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
               aria-label="Replay Dashboard Opening Animation"
               title="Replay Opening Animation"
             >
               <DiscordEmoji name="loop" id="1555133388149628980" size={13} />
-              <span className="hidden xl:inline">Intro</span>
+              <span>Replay Intro</span>
             </button>
 
             <button
@@ -1013,7 +1009,7 @@ export function App() {
               <DiscordEmoji name="Commands" id="1555133314380206160" size={14} />
               <span>Quick Jump</span>
               <kbd className="px-1.5 py-0.5 rounded bg-white/[0.06] text-[10px] text-indigo-300">
-                ⌘K
+                Ctrl+K
               </kbd>
             </button>
 
@@ -3861,37 +3857,17 @@ export function App() {
       )}
 
       {/* =====================================================================
-          DASHBOARD OPENING PORTAL ANIMATION OVERLAY
+          CHOREOGRAPHED DASHBOARD OPENING PORTAL ANIMATION OVERLAY
          ===================================================================== */}
-      {showDashboardBoot && (
-        <div
-          onClick={() => setShowDashboardBoot(false)}
-          className="fixed inset-0 z-50 bg-[#07080C] flex flex-col items-center justify-center p-6 animate-zenith-splash cursor-pointer"
-        >
-          <div className="relative flex items-center justify-center mb-6">
-            <div className="w-36 h-36 rounded-full border border-indigo-500/30 border-t-indigo-400 animate-zenith-orbit absolute" />
-            <div className="w-28 h-28 rounded-full border border-cyan-400/25 border-b-cyan-300 animate-zenith-orbit-reverse absolute" />
-            <img
-              src={botStatus.avatarUrl || DEFAULT_ZENITH_BOT_ICON}
-              alt="Zenith Bot"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).src = DEFAULT_ZENITH_BOT_ICON;
-              }}
-              className="w-20 h-20 rounded-3xl object-cover shadow-2xl shadow-indigo-500/40 border-2 border-indigo-400/60"
-            />
-          </div>
-          <div className="font-display font-extrabold text-2xl sm:text-3xl text-white tracking-tight">
-            Zenith Bot Control Center
-          </div>
-          <div className="text-xs font-mono text-cyan-300 mt-1.5 flex items-center gap-2">
-            <span>{activeGuild?.name || 'Discord Server'}</span>
-            <span aria-hidden="true">·</span>
-            <span>16-Module Anti-Nuke</span>
-            <span aria-hidden="true">·</span>
-            <span>320kbps VC Audio</span>
-          </div>
-        </div>
-      )}
+      <ZenithOpeningAnimation
+        isOpen={showDashboardBoot}
+        onComplete={() => setShowDashboardBoot(false)}
+        botAvatarUrl={botStatus.avatarUrl || DEFAULT_ZENITH_BOT_ICON}
+        botTag={botStatus.tag || 'Zenith#9729'}
+        botPing={botStatus.ping || 18}
+        guildName={activeGuild?.name}
+        variant="dashboard"
+      />
 
       {/* =====================================================================
           FLOATING MODAL 3: LIVE VC AUDIO & DSP CONTROLLER
@@ -3912,10 +3888,10 @@ export function App() {
               </div>
               <button
                 onClick={() => setShowVcFloatingModal(false)}
-                className="px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs text-[#9499B3] hover:text-white cursor-pointer"
+                className="px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs text-[#9499B3] hover:text-white flex items-center gap-1 cursor-pointer"
                 aria-label="Close Floating VC Modal"
               >
-                ✕
+                <DiscordEmoji name="white_cancel" id="1555133596652539988" size={14} />
               </button>
             </div>
 
@@ -4064,10 +4040,10 @@ export function App() {
               </div>
               <button
                 onClick={() => setShowServerModal(false)}
-                className="px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs text-[#9499B3] hover:text-white cursor-pointer"
+                className="px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs text-[#9499B3] hover:text-white flex items-center gap-1 cursor-pointer"
                 aria-label="Close Server Switcher Modal"
               >
-                ✕
+                <DiscordEmoji name="white_cancel" id="1555133596652539988" size={14} />
               </button>
             </div>
 
@@ -4104,8 +4080,20 @@ export function App() {
                         </div>
                       </div>
                     </div>
-                    <span className="text-xs font-mono text-indigo-300">
-                      {g.id === selectedGuildId ? 'Active ✓' : 'Select →'}
+                    <span className="text-xs font-mono text-indigo-300 flex items-center gap-1">
+                      {g.id === selectedGuildId ? (
+                        <>
+                          <DiscordEmoji
+                            name="white_Done"
+                            id="1555133626276905040"
+                            animated={true}
+                            size={13}
+                          />
+                          <span>Active</span>
+                        </>
+                      ) : (
+                        <span>Select</span>
+                      )}
                     </span>
                   </button>
                 ))}
@@ -4174,7 +4162,7 @@ export function App() {
                       />
                       <span className="text-xs font-semibold text-white">{tab.label}</span>
                     </div>
-                    <span className="text-[10px] font-mono text-indigo-300">Jump →</span>
+                    <span className="text-[10px] font-mono text-indigo-300">Open</span>
                   </button>
                 ))}
             </div>
@@ -4221,10 +4209,10 @@ export function App() {
               </div>
               <button
                 onClick={() => setShowRecapModal(false)}
-                className="px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs text-[#9499B3] hover:text-white cursor-pointer"
+                className="px-2.5 py-1 rounded-lg hover:bg-white/10 text-xs text-[#9499B3] hover:text-white flex items-center gap-1 cursor-pointer"
                 aria-label="Close 24-Hour Recap Modal"
               >
-                ✕
+                <DiscordEmoji name="white_cancel" id="1555133596652539988" size={14} />
               </button>
             </div>
 
