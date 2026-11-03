@@ -1,0 +1,6 @@
+{
+  "name": "Zenith Bot",
+  "description": "Zenith Bot — Production-grade Discord security, 16-module Anti-Nuke vault, automated moderation, and 24/7 320kbps lossless music control panel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

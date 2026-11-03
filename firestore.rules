@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions for strict authentication & Bot Owner authorization
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isBotAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.uid == '1181221352393420856' ||
+        request.auth.token.email == 'i.tejasmeetdhanoa@gmail.com'
+      );
+    }
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Bot global settings collection
+    match /bot/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isBotAdmin();
+    }
+
+    // Commands collection
+    match /commands/{commandId} {
+      allow read: if isAuthenticated();
+      allow write: if isBotAdmin();
+    }
+
+    // AutoMod rules collection
+    match /automod/{ruleId} {
+      allow read: if isAuthenticated();
+      allow write: if isBotAdmin();
+    }
+
+    // Per-guild persistent settings & data
+    match /guilds/{guildId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /guilds/{guildId}/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Snipe & utility caches
+    match /snipes/{channelId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+  }
+}
