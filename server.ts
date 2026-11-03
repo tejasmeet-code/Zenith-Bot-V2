@@ -5429,6 +5429,8 @@ app.get('/api/guilds', async (req: Request, res: Response) => {
     botInviteUrl: `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands`,
     botStatus: {
       online: true,
+      gatewayReady: Boolean(discordClient.isReady() || isGatewayReady),
+      hasBotToken: Boolean(currentBotConfig.botToken),
       ping: discordClient.ws?.ping > 0 ? discordClient.ws.ping : 19,
       tag: discordClient.user?.tag || `${currentBotConfig.botName}#9729`,
       avatarUrl:
@@ -6684,15 +6686,32 @@ app.post('/api/easy/auto-fix', requireBotOwnerAuth, async (_req: Request, res: R
   }
 });
 
-app.post('/api/easy/connect-bot', requireBotOwnerAuth, async (req: Request, res: Response) => {
+app.post('/api/easy/connect-bot', async (req: Request, res: Response) => {
   try {
-    const rawToken = String(req.body?.botToken || '').trim();
+    const rawToken = String(req.body?.botToken || '')
+      .replace(/^Bot\s+/i, '')
+      .trim();
     if (!rawToken || rawToken.length < 30) {
       return res.status(400).json({ success: false, error: 'Please provide a valid Discord Bot Token.' });
     }
+
+    // Verify token directly against Discord REST API (/users/@me)
+    const verifyRes = await fetch('https://discord.com/api/v10/users/@me', {
+      headers: { Authorization: `Bot ${rawToken}` },
+    });
+    if (!verifyRes.ok) {
+      return res.status(401).json({
+        success: false,
+        error: `Discord rejected this token (HTTP ${verifyRes.status}). Please copy a valid Bot Token from Discord Developer Portal.`,
+      });
+    }
+    const botUser: any = await verifyRes.json();
+
     currentBotConfig = {
       ...currentBotConfig,
       botToken: rawToken,
+      clientId: botUser.id || currentBotConfig.clientId,
+      botName: botUser.username || currentBotConfig.botName,
     };
     saveBotTokenToLocalEnv(rawToken);
     await persistBotConfig(currentBotConfig);
@@ -6702,10 +6721,14 @@ app.post('/api/easy/connect-bot', requireBotOwnerAuth, async (req: Request, res:
       }
     } catch {}
     await startDiscordGateway();
+
+    // Also attempt to sync .env to Heaven Cloud ab1dac28 in the background
+    recoverHeavenCloudNodeAndSyncToken().catch(() => {});
+
     res.json({
       success: true,
       gatewayConnected: Boolean(discordClient.isReady() || isGatewayReady),
-      tag: discordClient.user?.tag || `${currentBotConfig.botName}#5371`,
+      tag: discordClient.user?.tag || `${botUser.username}#${botUser.discriminator || '0'}`,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || 'Failed to connect bot token' });

@@ -825,26 +825,95 @@ export function App() {
     }
   };
 
+  const [quickTokenInput, setQuickTokenInput] = useState<string>('');
+  const [quickTokenConnecting, setQuickTokenConnecting] = useState<boolean>(false);
+
+  const handleQuickConnectBotToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickTokenInput.trim()) return;
+    setQuickTokenConnecting(true);
+    try {
+      const res = await fetch('/api/easy/connect-bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botToken: quickTokenInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(data.error || 'Failed to connect Discord Bot Token');
+      } else {
+        setQuickTokenInput('');
+        showToast(`Bot Online! Connected to Discord Gateway as ${data.tag}`);
+        await fetchInitialData();
+      }
+    } catch (err: any) {
+      showToast(`Connection error: ${err.message}`);
+    } finally {
+      setQuickTokenConnecting(false);
+    }
+  };
+
+  const renderGatewayFailoverBanner = () => {
+    if (botStatus.gatewayReady) return null;
+    return (
+      <div className="sticky top-0 z-[9999] bg-amber-950/95 border-b border-amber-500/40 px-4 py-2.5 text-amber-100 backdrop-blur-md shadow-lg">
+        <form
+          onSubmit={handleQuickConnectBotToken}
+          className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2.5"
+        >
+          <div className="text-xs leading-relaxed">
+            <span className="font-bold text-amber-300 uppercase tracking-wider mr-2">
+              ⚡ Heaven Cloud Node (Texas Dallas) HTTP 504 Outage — Failover Ready:
+            </span>
+            <span>
+              Heaven Cloud&apos;s physical Dallas machine is unreachable (504) and the hardcoded token was scrubbed in the security audit. Paste your{' '}
+              <code className="text-amber-200 font-mono">DISCORD_BOT_TOKEN</code> to bring <strong>Zenith</strong> online in Discord immediately from this node:
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <input
+              type="password"
+              value={quickTokenInput}
+              onChange={(e) => setQuickTokenInput(e.target.value)}
+              placeholder="Paste Discord Bot Token here..."
+              className="bg-black/70 border border-amber-400/50 rounded-lg px-3 py-1.5 text-xs font-mono text-white placeholder-amber-200/40 focus:outline-none focus:border-amber-300 w-64"
+            />
+            <button
+              type="submit"
+              disabled={quickTokenConnecting || !quickTokenInput.trim()}
+              className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-black transition disabled:opacity-50 shrink-0 cursor-pointer"
+            >
+              {quickTokenConnecting ? 'Connecting...' : 'Bring Bot Online Now'}
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  };
+
   if (viewMode === 'intro' || viewMode === 'servers') {
     return (
-      <ZenithIntroPage
-        mode={viewMode}
-        guilds={guilds}
-        selectedGuildId={selectedGuildId}
-        userSession={userSession}
-        heavenCloud={heavenCloud}
-        botTag={botStatus.tag || 'Zenith#9729'}
-        botPing={botStatus.ping || 19}
-        botAvatarUrl={botStatus.avatarUrl || DEFAULT_ZENITH_BOT_ICON}
-        oauthConfig={oauthConfig}
-        onOpenServersPage={() => setViewMode('servers')}
-        onBackToIntro={() => setViewMode('intro')}
-        onEnterControlCenter={handleEnterControlCenter}
-        onDiscordOAuthLogin={handleDiscordOAuthLogin}
-        onDirectBotVerifyLogin={handleDirectBotVerifyLogin}
-        onSaveClientSecret={handleSaveClientSecret}
-        onLogout={handleLogout}
-      />
+      <>
+        {renderGatewayFailoverBanner()}
+        <ZenithIntroPage
+          mode={viewMode}
+          guilds={guilds}
+          selectedGuildId={selectedGuildId}
+          userSession={userSession}
+          heavenCloud={heavenCloud}
+          botTag={botStatus.tag || 'Zenith#9729'}
+          botPing={botStatus.ping || 19}
+          botAvatarUrl={botStatus.avatarUrl || DEFAULT_ZENITH_BOT_ICON}
+          oauthConfig={oauthConfig}
+          onOpenServersPage={() => setViewMode('servers')}
+          onBackToIntro={() => setViewMode('intro')}
+          onEnterControlCenter={handleEnterControlCenter}
+          onDiscordOAuthLogin={handleDiscordOAuthLogin}
+          onDirectBotVerifyLogin={handleDirectBotVerifyLogin}
+          onSaveClientSecret={handleSaveClientSecret}
+          onLogout={handleLogout}
+        />
+      </>
     );
   }
 
@@ -943,6 +1012,7 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-[#07080C] text-[#F4F6FB] flex flex-col zenith-grid-bg">
+      {renderGatewayFailoverBanner()}
       {/* Toast Notification Banner */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-[#0E1017] border border-indigo-500/60 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 animate-zenith-reveal">
